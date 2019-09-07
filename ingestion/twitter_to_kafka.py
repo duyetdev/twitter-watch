@@ -1,5 +1,5 @@
 import json
-from kafka import SimpleProducer, KafkaClient
+from kafka import KafkaProducer, KafkaClient
 import tweepy
 import yaml
 
@@ -16,25 +16,28 @@ class TweeterStreamListener(tweepy.StreamListener):
         self.stream_config = stream_config
 
         super(tweepy.StreamListener, self).__init__()
-        # client = KafkaClient(kafka_host)
-        # self.producer = SimpleProducer(client,
-        #                                batch_send_every_n=1000,
-        #                                batch_send_every_t=10)
+        self.producer = KafkaProducer(bootstrap_servers=[kafka_host])
+
+        # Add Kafka topics
+        topic = self.stream_config.get('kafka_topic')
+        if topic:
+            client = KafkaClient(kafka_host)
+            client.add_topic(topic)
 
     def on_status(self, status):
         """ This method is called whenever new data arrives from live stream.
         We asynchronously push this data to kafka queue"""
-        msg = status.text.encode('utf-8')
+        msg = status.text
         id_str = status.id_str
         created_at = status.created_at
-        print(id_str, created_at, msg)
+        messages = { 'id_str': id_str, 'msg': msg, 'created_at': created_at }
 
-        # try:
-        #     self.producer.send_messages(b'twitterstream', msg)
-        # except Exception as e:
-        #     print(e)
-        #     return False
-        # return True
+        try:
+            self.producer.send(self.stream_config, json.dumps(messages).encode('utf-8'))
+        except Exception as e:
+            print(e)
+            return False
+        return True
 
     def on_error(self, status_code):
         print("Error received in kafka producer")
@@ -60,14 +63,11 @@ if __name__ == '__main__':
     auth.set_access_token(access_key, access_secret)
     api = tweepy.API(auth)
 
-    # Create stream and bind the listener to it
-    stream = tweepy.Stream(auth, listener=TweeterStreamListener(
-        api, kafka_host, stream_config))
-
     # Custom Filter rules pull all traffic for those filters in real time.
     #stream.filter(track = ['love', 'hate'], languages = ['en'])
-    tracks = [config['twitter_keywords'] for config in stream_config]
-    tracks = [item for sublist in tracks for item in sublist]
-
-    print(f'Track by keywords: {tracks}')
-    stream.filter(track=tracks)
+    for config in stream_config:
+        # Create stream and bind the listener to it
+        stream = tweepy.Stream(auth, listener=TweeterStreamListener(
+            api, kafka_host, stream_config=config))
+        print(f'Track by keywords: {config.get("twitter_keywords")}')
+        stream.filter(track=config.get('twitter_keywords'))
