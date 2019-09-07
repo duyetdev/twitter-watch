@@ -16,6 +16,8 @@ class TweeterStreamListener(tweepy.StreamListener):
         self.stream_config = stream_config
 
         super(tweepy.StreamListener, self).__init__()
+
+        print('bootstrap_servers:', kafka_host)
         self.producer = KafkaProducer(bootstrap_servers=kafka_host)
 
         # Add Kafka topics
